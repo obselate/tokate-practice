@@ -6,6 +6,18 @@
     {
       "harness": "codex",
       "provider": "openai"
+    },
+    {
+      "harness": "claude",
+      "provider": "anthropic"
+    },
+    {
+      "harness": "pi",
+      "provider": "local-chat-completions"
+    },
+    {
+      "harness": "omp",
+      "provider": "openai-codex"
     }
   ],
   "max_seconds": 3600,
