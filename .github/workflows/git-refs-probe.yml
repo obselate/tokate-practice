@@ -1,0 +1,78 @@
+name: Git refs probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+      - name: Probe git push hidden refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Tokate refs probe'
+          git config user.email 'refs-probe@users.noreply.github.com'
+          ref="refs/tokate/probe-$GITHUB_RUN_ID"
+          second="$ref-atomic"
+          parent="$GITHUB_SHA"
+          tree=$(git rev-parse "$parent^{tree}")
+          c1=$(printf 'Probe child 1\n' | git commit-tree "$tree" -p "$parent")
+          c2=$(printf 'Probe sibling 2\n' | git commit-tree "$tree" -p "$parent")
+          c3=$(printf 'Probe atomic child 3\n' | git commit-tree "$tree" -p "$c1")
+          echo "COMMITS parent=$parent c1=$c1 c2=$c2 c3=$c3"
+          run() {
+            local label="$1" rc=0
+            shift
+            "$@" > result.txt 2>&1 || rc=$?
+            cat result.txt
+            echo "RESULT $label exit=$rc"
+          }
+          inspect() {
+            local label="$1"
+            run "$label" git ls-remote origin "$ref" "$second"
+          }
+          cleanup() {
+            git -c core.hooksPath=/dev/null push origin ":$ref" || true
+            if test -n "$(git ls-remote origin "$second")"; then
+              git -c core.hooksPath=/dev/null push origin ":$second" || true
+            fi
+          }
+          trap cleanup EXIT
+          run create git push origin "$parent:$ref"
+          inspect after_create
+          run fast_forward_lease git push "--force-with-lease=$ref:$parent" origin "$c1:$ref"
+          inspect after_fast_forward
+          run stale_lease git push "--force-with-lease=$ref:$parent" origin "$c2:$ref"
+          inspect after_stale_lease
+          run plain_non_fast_forward git push origin "$c2:$ref"
+          inspect after_plain_non_fast_forward
+          run atomic_two_refs git push --atomic "--force-with-lease=$ref:$c1" "--force-with-lease=$second:" origin "$c3:$ref" "$c1:$second"
+          inspect after_atomic
+          live=$(git ls-remote origin "$ref" | cut -f1)
+          target=$(printf 'Probe server CAS target\n' | git commit-tree "$tree" -p "$live")
+          race=$(printf 'Probe server CAS concurrent child\n' | git commit-tree "$tree" -p "$live")
+          echo "COMMITS live=$live target=$target race=$race"
+          mkdir hooks
+          cat > hooks/pre-push <<'HOOK'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "Advancing hidden ref after outer push advertisement"
+          git -c core.hooksPath=/dev/null push "--force-with-lease=$PROBE_REF:$PROBE_LIVE" origin "$PROBE_RACE:$PROBE_REF"
+          git ls-remote origin "$PROBE_REF"
+          HOOK
+          chmod +x hooks/pre-push
+          export PROBE_REF="$ref" PROBE_LIVE="$live" PROBE_RACE="$race"
+          run server_race_cas git -c core.hooksPath="$PWD/hooks" push "--force-with-lease=$ref:$live" origin "$target:$ref"
+          inspect after_server_race
+          test "$(git ls-remote origin "$ref" | cut -f1)" = "$race"
+          run delete git -c core.hooksPath=/dev/null push origin ":$ref"
+          if test -n "$(git ls-remote origin "$second")"; then
+            run delete_atomic_ref git -c core.hooksPath=/dev/null push origin ":$second"
+          fi
+          inspect after_delete
+          test -z "$(git ls-remote origin "$ref" "$second")"
+          trap - EXIT
