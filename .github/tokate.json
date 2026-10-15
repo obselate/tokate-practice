@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "approval_scope": "task",
   "eligibility": "open",
   "allowed_tools": [
@@ -30,6 +30,5 @@
   ],
   "required_checks": [
     "test"
-  ],
-  "model_policy": "unrestricted"
+  ]
 }
