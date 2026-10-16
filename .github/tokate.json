@@ -5,7 +5,12 @@
   "allowed_tools": [
     {
       "harness": "codex",
-      "provider": "openai"
+      "provider": "openai",
+      "models": {
+        "gpt-6-luna": [
+          "low"
+        ]
+      }
     },
     {
       "harness": "claude",
